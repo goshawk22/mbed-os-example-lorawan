@@ -41,3 +41,7 @@ mbed_config.h
 BUILD/
 cmake_build/
 
+BUILD
+.mbed
+mbed-os
+stm32customtargets

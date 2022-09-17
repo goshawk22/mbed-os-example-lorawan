@@ -21,22 +21,24 @@
 #include "events/EventQueue.h"
 
 // Application helpers
-#include "DummySensor.h"
 #include "trace_helper.h"
 #include "lora_radio_helper.h"
+#include "lora_phy_helper.h"
 
 using namespace events;
 
 // Max payload size can be LORAMAC_PHY_MAXPAYLOAD.
 // This example only communicates with much shorter messages (<30 bytes).
 // If longer messages are used, these buffers must be changed accordingly.
-uint8_t tx_buffer[30];
-uint8_t rx_buffer[30];
+uint8_t tx_buffer[7];
+uint8_t rx_buffer[7];
 
+
+//bool swapper = 0;
 /*
  * Sets up an application dependent transmission timer in ms. Used only when Duty Cycling is off for testing
  */
-#define TX_TIMER                        10000
+#define TX_TIMER                        30000
 
 /**
  * Maximum number of events for the event queue.
@@ -51,14 +53,14 @@ uint8_t rx_buffer[30];
 #define CONFIRMED_MSG_RETRY_COUNTER     3
 
 /**
- * Dummy pin for dummy sensor
+ * Datarate used when ADR is disabled
  */
-#define PC_9                            0
+#define DATA_RATE      DR_0
 
 /**
- * Dummy sensor class object
+ * LoRaWAN Regions from https://github.com/ARMmbed/mbed-os/blob/a6610e61691c23b02dd8513c9194acc316690327/connectivity/lorawan/lorastack/phy/loraphy_target.h#L23
  */
-DS1820  ds1820(PC_9);
+
 
 /**
 * This event queue is the global event queue for both the
@@ -80,7 +82,7 @@ static void lora_event_handler(lorawan_event_t event);
 /**
  * Constructing Mbed LoRaWANInterface and passing it the radio object from lora_radio_helper.
  */
-static LoRaWANInterface lorawan(radio);
+static LoRaWANInterface lorawan(radio, phy);
 
 /**
  * Application specific callbacks
@@ -100,11 +102,11 @@ int main(void)
 
     // Initialize LoRaWAN stack
     if (lorawan.initialize(&ev_queue) != LORAWAN_STATUS_OK) {
-        printf("\r\n LoRa initialization failed! \r\n");
+        printf("\n LoRa initialization failed! \n");
         return -1;
     }
 
-    printf("\r\n Mbed LoRaWANStack initialized \r\n");
+    printf("\n Mbed LoRaWANStack initialized \n");
 
     // prepare application callbacks
     callbacks.events = mbed::callback(lora_event_handler);
@@ -113,31 +115,32 @@ int main(void)
     // Set number of retries in case of CONFIRMED messages
     if (lorawan.set_confirmed_msg_retries(CONFIRMED_MSG_RETRY_COUNTER)
             != LORAWAN_STATUS_OK) {
-        printf("\r\n set_confirmed_msg_retries failed! \r\n\r\n");
+        printf("\n set_confirmed_msg_retries failed! \n\n");
         return -1;
     }
 
-    printf("\r\n CONFIRMED message retries : %d \r\n",
+    printf("\n CONFIRMED message retries : %d \n",
            CONFIRMED_MSG_RETRY_COUNTER);
 
     // Enable adaptive data rate
-    if (lorawan.enable_adaptive_datarate() != LORAWAN_STATUS_OK) {
-        printf("\r\n enable_adaptive_datarate failed! \r\n");
+    if (lorawan.disable_adaptive_datarate() != LORAWAN_STATUS_OK) {
+        printf("\n disable_adaptive_datarate failed! \n");
         return -1;
     }
 
-    printf("\r\n Adaptive data  rate (ADR) - Enabled \r\n");
+    printf("\n Adaptive data  rate (ADR) - Disabled \n");
 
     retcode = lorawan.connect();
 
     if (retcode == LORAWAN_STATUS_OK ||
             retcode == LORAWAN_STATUS_CONNECT_IN_PROGRESS) {
     } else {
-        printf("\r\n Connection error, code = %d \r\n", retcode);
+        printf("\n Connection error, code = %d \n", retcode);
         return -1;
     }
 
-    printf("\r\n Connection - In Progress ...\r\n");
+    printf("\n Connection - In Progress ...\n");
+
 
     // make your event queue dispatching events forever
     ev_queue.dispatch_forever();
@@ -146,33 +149,21 @@ int main(void)
 }
 
 /**
- * Sends a message to the Network Server
+ * Sends a message to the Network Server and ask for ACK
  */
 static void send_message()
 {
     uint16_t packet_len;
     int16_t retcode;
-    int32_t sensor_value;
 
-    if (ds1820.begin()) {
-        ds1820.startConversion();
-        sensor_value = ds1820.read();
-        printf("\r\n Dummy Sensor Value = %d \r\n", sensor_value);
-        ds1820.startConversion();
-    } else {
-        printf("\r\n No sensor found \r\n");
-        return;
-    }
-
-    packet_len = sprintf((char *) tx_buffer, "Dummy Sensor Value is %d",
-                         sensor_value);
+    packet_len = sprintf((char *) tx_buffer, "0");
 
     retcode = lorawan.send(MBED_CONF_LORA_APP_PORT, tx_buffer, packet_len,
                            MSG_UNCONFIRMED_FLAG);
 
     if (retcode < 0) {
-        retcode == LORAWAN_STATUS_WOULD_BLOCK ? printf("send - WOULD BLOCK\r\n")
-        : printf("\r\n send() - Error code %d \r\n", retcode);
+        retcode == LORAWAN_STATUS_WOULD_BLOCK ? printf("send - WOULD BLOCK\n")
+        : printf("\n send() - Error code %d \n", retcode);
 
         if (retcode == LORAWAN_STATUS_WOULD_BLOCK) {
             //retry in 3 seconds
@@ -183,7 +174,7 @@ static void send_message()
         return;
     }
 
-    printf("\r\n %d bytes scheduled for transmission \r\n", retcode);
+    printf("\n %d bytes scheduled for transmission \n", retcode);
     memset(tx_buffer, 0, sizeof(tx_buffer));
 }
 
@@ -197,7 +188,7 @@ static void receive_message()
     int16_t retcode = lorawan.receive(rx_buffer, sizeof(rx_buffer), port, flags);
 
     if (retcode < 0) {
-        printf("\r\n receive() - Error code %d \r\n", retcode);
+        printf("\n receive() - Error code %d \n", retcode);
         return;
     }
 
@@ -205,7 +196,7 @@ static void receive_message()
     for (uint8_t i = 0; i < retcode; i++) {
         printf("%02x ", rx_buffer[i]);
     }
-    printf("\r\n");
+    printf("\n");
     
     memset(rx_buffer, 0, sizeof(rx_buffer));
 }
@@ -215,53 +206,99 @@ static void receive_message()
  */
 static void lora_event_handler(lorawan_event_t event)
 {
+    lorawan_tx_metadata txMetadata;
+    lorawan_status_t retcode_tx_data;
     switch (event) {
         case CONNECTED:
-            printf("\r\n Connection - Successful \r\n");
+            printf("\n Connection - Successful \n");
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             } else {
                 ev_queue.call_every(TX_TIMER, send_message);
             }
 
+            // Set data rate as it will have been changed after join to use whichever was successful at join
+            if (lorawan.set_datarate(DATA_RATE) != LORAWAN_STATUS_OK) {
+                printf("\n set_datarate failed! \n");
+            } else {
+                printf("\n Datarate set successfully \n");
+            }
+    
             break;
+
         case DISCONNECTED:
             ev_queue.break_dispatch();
-            printf("\r\n Disconnected Successfully \r\n");
+            printf("\n Disconnected Successfully \n");
             break;
+
         case TX_DONE:
-            printf("\r\n Message Sent to Network Server \r\n");
+            printf("\n Message Sent to Network Server \n");
+
+            retcode_tx_data = lorawan.get_tx_metadata(txMetadata);
+            if (retcode_tx_data == LORAWAN_STATUS_OK) {
+                printf("\n TX Time-on-air: %u \n Channel: %u \n TX Power: %u \n Data Rate: %u \n Number of retransmissions: %u \n Stale: %u\n",
+                     txMetadata.tx_toa, txMetadata.channel, txMetadata.tx_power, txMetadata.data_rate, txMetadata.nb_retries, txMetadata.stale);
+            } else {
+                printf("Error getting TX metadata %d\r\n", retcode_tx_data);
+            }
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             }
+
+            // Set data rate as it will have been changed after join to use whichever was successful at join
+            //if (swapper) {
+            //    swapper = 0;
+            //    if (lorawan.set_datarate(DATA_RATE) != LORAWAN_STATUS_OK) {
+            //        printf("\n set_datarate failed! \n");
+            //    } else {
+            //        printf("\n Datarate set to DR 0 successfully \n");
+            //    }
+            //} else {
+            //    swapper = 1;
+            //    if (lorawan.set_datarate(DR_3) != LORAWAN_STATUS_OK) {
+            //        printf("\n set_datarate failed! \n");
+            //    } else {
+            //        printf("\n Datarate set to DR3 successfully \n");
+            //    }
+            //}
+            
+
             break;
+
         case TX_TIMEOUT:
         case TX_ERROR:
+            printf("\n TX ERROR - EventCode = %d \n", event);
+            break;
         case TX_CRYPTO_ERROR:
         case TX_SCHEDULING_ERROR:
-            printf("\r\n Transmission Error - EventCode = %d \r\n", event);
+            printf("\n Transmission Error - EventCode = %d \n", event);
             // try again
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             }
             break;
+
         case RX_DONE:
-            printf("\r\n Received message from Network Server \r\n");
+            printf("\n Received message from Network Server \n");
             receive_message();
             break;
+
         case RX_TIMEOUT:
         case RX_ERROR:
-            printf("\r\n Error in reception - Code = %d \r\n", event);
+            printf("\n Error in reception - Code = %d \n", event);
             break;
+
         case JOIN_FAILURE:
-            printf("\r\n OTAA Failed - Check Keys \r\n");
+            printf("\n OTAA Failed - Check Keys \n");
             break;
+
         case UPLINK_REQUIRED:
-            printf("\r\n Uplink required by NS \r\n");
+            printf("\n Uplink required by NS \n");
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             }
             break;
+
         default:
             MBED_ASSERT("Unknown Event");
     }
